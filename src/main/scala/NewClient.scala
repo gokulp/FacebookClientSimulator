@@ -148,6 +148,17 @@ class NewClient (host: String , bindport: Int, id:Int, aggressionLevel: Int, isC
       self ! AddPage(page)
       myPage = page
 
+    case "GetServerPublicKey" =>
+      val response:Future[Authentication] = tokenPipeline(Get("http://localhost:5001/getPublicKey"))
+      response.onComplete{
+        case Success(rsp)=>
+          serverPublicKey = RSAEncryptor.getPublicKeyFromString(rsp.token)
+          self ! "GetToken"
+        case Failure(error) =>
+          println("Error "+error)
+          self ! "GetServerPublicKey"
+      }
+
     case "DoSomethingNew" =>
       val noOfChoices = 6
       var choice = Random.nextInt(noOfChoices)
