@@ -1,0 +1,68 @@
+run
+compile
+run simulator
+compile
+run
+compile
+recompile
+clean
+compile
+compile -feature
+compile-feature
+run
+clean
+compile
+run
+compile
+clean
+compile
+run
+clean
+run
+clean
+compile
+run
+clean
+compile
+run
+exit
+clena
+clean
+compile
+project moduleX
+project simulator
+run
+clean
+compile
+run
+compile
+run
+compile
+run
+compile
+run
+compile
+run
+compile
+run
+compile
+run
+compile
+run
+compile
+run
+compile
+run
+compile
+run
+run 100 localhost 5001
+run
+compile
+run
+run 100 localhost 5001
+run
+run 100 localhost 5001
+run
+run 100 localhost 5001
+run 10000 localhost 5001
+run 100 localhost 100

@@ -1,0 +1,23 @@
+import akka.actor.{Props, ActorSystem, Actor}
+import akka.actor.Actor.Receive
+import akka.util.Timeout
+import com.typesafe.config.ConfigFactory
+import spray.client.pipelining._
+import spray.http._
+
+import scala.concurrent.Future
+import scala.concurrent.duration.Duration
+
+/**
+ * Created by gokul on 11/30/15.
+ */
+class Simulator extends App{
+  override def main (args: Array[String]) {
+    implicit val system = ActorSystem("simulator");
+    implicit val executionContext = system.dispatcher
+
+    val client = system.actorOf(Props(classOf[Client], "", 80, 1, 1), name = "1")
+    client ! GetProfile
+  }
+}
+

@@ -1,0 +1,127 @@
+import akka.actor.Actor
+import akka.io.IO
+import akka.pattern.ask
+import akka.util.Timeout
+import org.json4s.{DefaultFormats, Formats}
+import spray.can.Http
+import spray.client.pipelining._
+import spray.http._
+
+import scala.concurrent.Future
+import scala.concurrent.duration._
+import scala.util.{Success, Failure}
+import entities._
+
+import spray.httpx.Json4sSupport
+
+/*
+import spray.json.{JsonFormat, DefaultJsonProtocol}
+
+object FacebookJsonProtocol extends DefaultJsonProtocol {
+  implicit val profileFormat = jsonFormat2(Profile)
+  implicit val postFormat = jsonFormat2(entities.Post)
+  //implicit def googleApiResultFormat[T :JsonFormat] = jsonFormat2(GoogleApiResult.apply[T])
+}
+*/
+
+/**
+ * Created by gokul on 11/30/15.
+ */
+
+class Client (host: String , bindport: Int, id:Int, aggressionLevel: Int/*1: Reader 2: Normal User 3: Aggressive poster*/) extends Actor with Json4sSupport {
+  implicit val system = context.system
+  import system.dispatcher
+  //val pipeline: HttpRequest => Future[HttpResponse] = sendReceive
+  //val response: Future[HttpResponse] = pipeline(Get(hosts+"profiles/1"))
+  implicit val timeout = Timeout(10 seconds)
+  val pipeline: Future[SendReceive] =
+    for (
+      Http.HostConnectorInfo(connector, _) <-
+      IO(Http) ? Http.HostConnectorSetup("localhost", port = 5001)
+    ) yield sendReceive(connector)
+  //val request = Get("/profiles/1")
+  //val response: Future[HttpResponse] = pipeline.flatMap(_(request))
+  var name = self.actorRef.path.name
+  override def receive: Receive = {
+    case GetProfile =>
+      val request = Get("/profiles/1")
+      val response: Future[HttpResponse] = pipeline.flatMap(_(request))
+      response.onComplete{
+        case Success(response) =>
+          println("Returned Success "+response)
+        case Failure(error) =>
+          println(error, "failed to get profile")
+          context.system.scheduler.scheduleOnce(500 milliseconds, self, GetProfile)
+      }
+    //case UpdateProfile =>
+  }
+
+  override implicit def json4sFormats: Formats = DefaultFormats
+}
+
+
+
+////
+
+case AddFriend(userId: FriendListUpdate) =>
+      if(name.toInt == userId.list) //cannot add self to friend list
+      {
+        val response: Future[FriendList] = friendPipeline(Put("http://localhost:5001/friendLists/" + name, userId))
+        response.onComplete {
+          case Success(response) =>
+            println("Returned Success " + response)
+            friendList = response
+            failedAttempts = 0
+          case Failure(error) =>
+            //println(error, "failed to get profile")
+            if (failedAttempts == 5)
+              context.stop(self)
+            else failedAttempts += 1
+            context.system.scheduler.scheduleOnce(999 milliseconds, self, GetFriends)
+        }
+      }
+    case UpdateProfile(profile:ProfileUpdate) =>
+      val response: Future[Profile] = profilePipeline(Put("http://localhost:5001/profiles/"+name, profile))
+      response.onComplete{
+        case Success(profile) =>
+          println("Returned Success "+profile)
+          myProfile = profile //Update current profile with updated profile
+          failedAttempts = 0
+        case Failure(error) =>
+          //Update failed
+          //println(error, "failed to get profile")
+      }
+    case GetFriends =>
+      val response: Future[FriendList] = friendPipeline(Get("http://localhost:5001/friendLists/"+name))
+      response.onComplete{
+        case Success(response) =>
+          println("Returned Success "+response)
+          friendList = response
+          failedAttempts = 0
+          //self ! AddFriend(FriendListUpdate(list = 2))
+        case Failure(error) =>
+          //println(error, "failed to get profile")
+          if (failedAttempts == 5) {
+            context.stop(self)
+            println("Shutting down actor "+name)
+          }
+          else failedAttempts += 1
+          context.system.scheduler.scheduleOnce(999 milliseconds, self, GetFriends)
+      }
+    case GetProfile =>
+      //println("Name of actor"+name)
+      val response: Future[Profile] = profilePipeline(Get("http://localhost:5001/profiles/"+name))
+      response.onComplete{
+        case Success(profile) =>
+          println("Returned Success "+profile)
+          myProfile = profile
+          self ! GetFriends
+          failedAttempts = 0
+        case Failure(error) =>
+          //println(error, "failed to get profile")
+          if (failedAttempts == 5) {
+            context.stop(self)
+            println("Shutting down actor "+name)
+          }
+          else failedAttempts += 1
+          context.system.scheduler.scheduleOnce(999 milliseconds, self, GetProfile)
