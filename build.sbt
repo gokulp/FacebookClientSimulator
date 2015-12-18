@@ -28,8 +28,9 @@ libraryDependencies ++= {
     "org.json4s"        %% "json4s-ext"      % Json4sVersion,
     "com.typesafe.akka" %% "akka-testkit"    % AkkaVersion  % "test",
     "io.spray"          %% "spray-testkit"   % SprayVersion % "test",
-    "org.specs2"        %% "specs2"          % "2.3.13"     % "test",
-    "org.apache.commons" % "commons-lang3" % "3.1"
+    "org.specs2"        %% "specs2"          % "2.3.13"     % "test"
+    ,"org.apache.commons" % "commons-lang3" % "3.1",
+    "commons-codec" % "commons-codec" % "1.9"
   )
 }
 

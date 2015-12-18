@@ -36,7 +36,7 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
 
   var myProfile: Profile = new Profile(0, "", List(""),
     "", "", "",
-    List(), List(), List(), List(), "", "", "")
+    List(), List(), List(), List(), "")
   var friendList: FriendList = new FriendList(0, List(), List(), "")
   var pendingList:FriendList = friendList
   var newsFeed = new ArrayBuffer[UserPost]()
@@ -45,15 +45,18 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
   implicit val timeout = Timeout(100 seconds)
 
 
-  var myPhoto:Photo = new Photo(0,0,"","",-1,false)
-  var myPost:UserPost = new UserPost(0,0,"","","")
-  var myAlbum:Album = new Album(0,0,0,"",false,"",List())
+  var myPhoto:Photo = new Photo(0,0,0,"","",-1,false)
+  var myPost:UserPost = new UserPost(0,0,0,"","","","",List())
+  var myAlbum:Album = new Album(0,0,0,0,"",false,"",List())
   var myFriendList:FriendList = new FriendList(0, List(), List(), "")
   //var myPage:Page = new Page(0,"",false,false,List(),"",0)
   var myPage: Page = new  Page(0, "", 0, 0, List(),
-    "",0,List(), List(), List(), "")
+    "",0,List(), List(), List())
 
-
+  var myHiddenPhoto:PhotoWrapper = new PhotoWrapper(0,0,0,0,false,"","")
+  var myHiddenPost:UserPostWrapper = new UserPostWrapper(0,0,0,"","","")
+  var myHiddenProfile:ProfileWrapper = new ProfileWrapper(0,"","","",List(), List(), List(), List(),"","","")
+  var myHiddenPage:PageWrapper = new PageWrapper(0,"",0,List(), List(), List(), "","")
   var tokenToSend:Authentication = new Authentication(userID, "")
   val pipeline: HttpRequest => Future[HttpResponse] = sendReceive
 
@@ -67,30 +70,31 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
       ~> sendReceive
       ~> unmarshal[Authentication]
     )
-  val profilePipeline: HttpRequest => Future[Profile] = (
+
+  val profilePipeline: HttpRequest => Future[ProfileWrapper] = (
     addHeader("X-My-Special-Header", "fancy-value")
       ~> sendReceive
-      ~> unmarshal[Profile]
+      ~> unmarshal[ProfileWrapper]
     )
   val friendPipeline: HttpRequest => Future[FriendList] = (
     addHeader("X-My-Special-Header", "fancy-value")
       ~> sendReceive
       ~> unmarshal[FriendList]
     )
-  val postPipeline: HttpRequest => Future[UserPost] = (
+  val postPipeline: HttpRequest => Future[UserPostWrapper] = (
     addHeader("X-My-Special-Header", "fancy-value")
       ~> sendReceive
-      ~> unmarshal[UserPost]
+      ~> unmarshal[UserPostWrapper]
     )
-  val pagePipeline: HttpRequest => Future[Page] = (
+  val pagePipeline: HttpRequest => Future[PageWrapper] = (
     addHeader("X-My-Special-Header", "fancy-value")
       ~> sendReceive
-      ~> unmarshal[Page]
+      ~> unmarshal[PageWrapper]
     )
-  val photoPipeline: HttpRequest => Future[Photo] = (
+  val photoPipeline: HttpRequest => Future[PhotoWrapper] = (
     addHeader("X-My-Special-Header", "fancy-value")
       ~> sendReceive
-      ~> unmarshal[Photo]
+      ~> unmarshal[PhotoWrapper]
     )
   val albumPipeline: HttpRequest => Future[Album] = (
     addHeader("X-My-Special-Header", "fancy-value")
@@ -131,7 +135,7 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
     case "CreateProfile" =>
       var profile: Profile = new Profile(userID, GenerateRandomStuff.getDOB, List(GenerateRandomStuff.getEmail),
         GenerateRandomStuff.getName, GenerateRandomStuff.getGender(Random.nextInt(2)), GenerateRandomStuff.getName,
-        List(), List(), List(), List(), key.getPublic.toString, "token","hidden")
+        List(), List(), List(), List(), key.getPublic.toString)
       self ! AddProfile(profile)
       myProfile = profile
 
@@ -141,7 +145,7 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
     case "CreatePage" =>
       var publickey = RSAEncryptor.getPublicKeyString(key.getPublic)
       var page: Page = new  Page(userID, GenerateRandomStuff.getName, 0, 0, List(GenerateRandomStuff.getEmail),
-        GenerateRandomStuff.getName,GenerateRandomStuff.randBetween(100,10000),List(), List(), List(), "")
+        GenerateRandomStuff.getName,GenerateRandomStuff.randBetween(100,10000),List(), List(), List())
       self ! AddPage(page)
       myPage = page
 
@@ -159,20 +163,23 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
           self ! "GetServerPublicKey"
       }
 
-
     /**
       * AddProfile is used to add new profile to the server. As every new profile can be created
      * fresh and there is no way to authenticate users in this case. We don't send any
      * authentication token. In real-world scenario this can be used terms and conditions signing part.
      */
     case AddProfile(profile:Profile) =>
-      var x = Post("http://localhost:5001/profiles", profile)
+      val hvalue:String = AESEncryptor.encrypt(symmetricKey,initVector,profile)
+      val tempProfile: ProfileWrapper = new ProfileWrapper(profile.id, profile.first_name,profile.gender,profile.last_name,profile.albums, profile.photos, profile.likedpages, profile.userposts, profile.public_key, hvalue,"token")
+
+      var x = Post("http://localhost:5001/profiles", tempProfile)
       println(x)
       val response: Future[HttpResponse] = pipeline(x)
       response.onComplete {
         case Success(response) =>
           println("response is " +response + response.status.toString.substring(0, 3).toLong)
           failedAttempts = 0
+          myHiddenProfile = tempProfile
           getToken()
           self ! GetProfile
         case Failure(error) =>
@@ -187,16 +194,60 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
      * require authentication token.
      */
     case AddPage(page:Page) =>
-      val response: Future[Page] = pagePipeline(Post("http://localhost:5001/pages" , page))
+      val hvalue:String = AESEncryptor.encrypt(symmetricKey,initVector,page)
+      val tempPage: PageWrapper = new PageWrapper(page.id,page.username,page.likes,page.albums, page.photos, page.userposts, hvalue,"token")
+      val response: Future[PageWrapper] = pagePipeline(Post("http://localhost:5001/pages" , tempPage))
       response.onComplete {
         case Success(response) =>
-          myPage = response
           failedAttempts = 0
+          myHiddenPage = tempPage
           getToken()
         case Failure(error) =>
           if (failedAttempts == 5)
             context.stop(self)
           else failedAttempts += 1
+      }
+
+    /**
+     * AddPhoto: Adds encrypted photo
+     */
+    case AddPhoto(photo:Photo) =>
+      val token:String = "Token"
+      val hvalue:String = AESEncryptor.encrypt(symmetricKey,initVector,photo)
+      val tempPhoto: PhotoWrapper = new PhotoWrapper(photo.id, photo.byPage,photo.from,photo.album,photo.can_delete,hvalue,token)
+      val response: Future[PhotoWrapper] = photoPipeline(Post("http://localhost:5001/photos", tempPhoto))
+      response.onComplete {
+        case Success(response) =>
+          //println("Added Post " + response)
+          myHiddenPhoto = response
+          failedAttempts = 0
+        case Failure(error) =>
+          ////println(error, "failed to get profile")
+          if (failedAttempts == 5)
+            context.stop(self)
+          else failedAttempts += 1
+          context.system.scheduler.scheduleOnce(999 milliseconds, self, AddPhoto(photo:Photo))
+      }
+
+    /**
+     * AddPost: Adds encrypted post
+     */
+    case AddPost(post:UserPost) =>
+      val token:String = "Token"
+      val hvalue:String = AESEncryptor.encrypt(symmetricKey,initVector,post)
+      val tempPost: UserPostWrapper = new UserPostWrapper(post.id, post.byPage,post.from,post.privacy,hvalue,token)
+      val response: Future[UserPostWrapper] = postPipeline(Post("http://localhost:5001/posts", tempPost))
+      response.onComplete {
+        case Success(response) =>
+          //println("Added Post " + response)
+          myHiddenPost = response
+          failedAttempts = 0
+        case Failure(error) =>
+          ////println(error, "failed to get profile")
+          if (failedAttempts == 5)
+            context.stop(self)
+          else failedAttempts += 1
+          context.system.scheduler.scheduleOnce(999 milliseconds, self, AddPost(post:UserPost))
       }
 
     /**
@@ -245,7 +296,7 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
      */
     case "GetPendingRequests" =>
       println("Getting pending requests for "+userID + tokenToSend)
-      val response = friendPipeline(Get("http://localhost:5001/friendRequest", tokenToSend)).onComplete{
+      val response = friendPipeline(Get("http://localhost:5001/friendRequest/"+tokenToSend.id, tokenToSend)).onComplete{
         case Success(frndList) =>
           pendingList = frndList
           println("Pending request "+ pendingList)
@@ -296,6 +347,7 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
         case Success(response) =>
           println("Successfully added frnd "+response)
           getToken()
+          self ! GetFriends
         case Failure(err) =>
           println("Error adding frnd")
           getToken()
@@ -303,13 +355,15 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
 
     /**
      * GetProfile gets profile related to this particular actor.
+     * After getting the profile decrypts it with symmetric key.
      * Authentication Token: Not needed
      */
     case GetProfile =>
-      val response: Future[Profile] = profilePipeline(Get("http://localhost:5001/profiles/"+userID))
+      val response: Future[ProfileWrapper] = profilePipeline(Get("http://localhost:5001/profiles/"+userID))
       response.onComplete{
         case Success(profile) =>
-          myProfile = profile
+          myHiddenProfile = profile
+          myProfile = AESEncryptor.decrypt(symmetricKey, initVector, profile.hiddenValue).asInstanceOf[Profile]
           failedAttempts = 0
         case Failure(error) =>
           if (failedAttempts == 5) {
@@ -325,9 +379,15 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
      * Authentication Token: Not needed
      */
     case GetFriendProfile(userID:Int) =>
-      val response: Future[Profile] = profilePipeline(Get("http://localhost:5001/profiles/"+userID))
+      val response: Future[ProfileWrapper] = profilePipeline(Get("http://localhost:5001/profiles/"+userID))
       response.onComplete{
         case Success(profile) =>
+          //Add logic to decrypt with the available symmetric key from friend list
+          if (myFriendList.list.contains(profile.id)) {
+            var encryptedKey = myFriendList.keys(myFriendList.list.indexOf(profile.id))
+            var plainKey:String = RSAEncryptor.decrypt(Base64.decodeBase64(encryptedKey), key.getPrivate).asInstanceOf[String]
+            var frndsProfile = AESEncryptor.decrypt(plainKey, initVector, profile.hiddenValue).asInstanceOf[Profile]
+          }
           failedAttempts = 0
           getToken()
         case Failure(error) =>
@@ -338,14 +398,18 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
      *
      */
     case GetPhoto(photoID) =>
-      val response: Future[Photo] = photoPipeline(Get("http://localhost:5001/photos/"+photoID))
+      val response: Future[PhotoWrapper] = photoPipeline(Get("http://localhost:5001/photos/"+photoID))
       response.onComplete{
         case Success(photo) =>
-          myPhoto = photo
+          myPhoto = AESEncryptor.decrypt(symmetricKey, initVector, photo.hiddenValue).asInstanceOf[Photo]
           failedAttempts = 0
         case Failure(error) =>
+          println("Error while getting photo " + error)
       }
 
+    /**
+     *
+     */
     case GetAlbum(albumID) =>
       val response: Future[Album] = albumPipeline(Get("http://localhost:5001/albums/"+albumID))
       response.onComplete{
@@ -353,20 +417,58 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
           myAlbum = album
           failedAttempts = 0
         case Failure(error) =>
+          println("Error while getting Album "+error)
       }
 
-    case GetPage =>
-      val response: Future[Page] = pagePipeline(Get("http://localhost:5001/pages/"+name))
+    /**
+     *
+     */
+    case GetFriends =>
+      val response: Future[FriendList] = friendPipeline(Get("http://localhost:5001/friendLists/"+userID))
       response.onComplete{
-        case Success(page) =>
-          myPage = page
+        case Success(frnds) =>
+          myFriendList = frnds
+          println("Successfully downloaded frnds list "+frnds)
           failedAttempts = 0
         case Failure(error) =>
-          if (failedAttempts == 5) {
-              context.stop(self)
+          println("Error while getting friend list "+error)
+      }
+
+    /**
+     * Ensure that you always get friend list before requesting any post from server.
+     */
+    case GetPost =>
+      val response: Future[UserPostWrapper] = postPipeline(Get("http://localhost:5001/posts/"+name))
+      response.onComplete{
+        case Success(post) =>
+          //TODO Decrypt with post.from's symmetric key which is present in friend List
+          if (post.from != userID && post.privacy.equals("Friends")){
+            if (myFriendList.list.contains(post.from)){
+              var encryptedKey = myFriendList.keys(myFriendList.list.indexOf(post.from))
+              var plainKey = RSAEncryptor.decrypt(Base64.decodeBase64(encryptedKey), key.getPrivate).asInstanceOf[String]
+              myPost = AESEncryptor.decrypt(plainKey, initVector, post.hiddenValue).asInstanceOf[UserPost]
+            }
+          } else if (post.from == userID) {
+            myPost = AESEncryptor.decrypt(symmetricKey, initVector, post.hiddenValue).asInstanceOf[UserPost]
+          } else if (post.from != userID && post.privacy.equals("Custom")){
+            //Decrypt with private key of self and public key of sender...
           }
-        else failedAttempts += 1
-          context.system.scheduler.scheduleOnce(999 milliseconds, self, GetPage)
+          failedAttempts = 0
+        case Failure(error) =>
+          println("Error while getting user post " + error)
+      }
+
+    /**
+     *
+     */
+    case GetPage =>
+      val response: Future[PageWrapper] = pagePipeline(Get("http://localhost:5001/pages/"+name))
+      response.onComplete{
+        case Success(page) =>
+          myPage = AESEncryptor.decrypt(symmetricKey, initVector, page.hiddenValue).asInstanceOf[Page]
+          failedAttempts = 0
+        case Failure(error) =>
+          println("Error while getting page " + error)
       }
 
     case "DoSomethingNew" =>
@@ -390,7 +492,6 @@ class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int
             context.system.scheduler.scheduleOnce(9999 milliseconds, self, "DoSomethingNew")
           }
       }
-
   }
 
   override implicit def json4sFormats: Formats = DefaultFormats

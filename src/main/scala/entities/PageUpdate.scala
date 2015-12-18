@@ -12,5 +12,4 @@ case class PageUpdate(//id:Int,
                       likes:Option[Long] = None,
                       albums:Option[List[Int]] = None,
                       photos:Option[List[Int]] = None,
-                      userposts: Option[List[Int]] = None,
-                      token:String)
+                      userposts: Option[List[Int]] = None)

@@ -4,6 +4,7 @@ package entities
  * Created by sahilpt on 11/30/15.
  */
 case class Album( id:Int, /*unique album_id*/
+                  byPage:Int,
                   from:Int, /* user_id of album owner */
                   count:Int, /*Number of photos*/
                   description:String, /* Description of the album*/

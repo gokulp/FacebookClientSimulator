@@ -12,7 +12,6 @@ case class Page(id:Int, /*page ID*/
                 likes:Long,
                 albums: List[Int],
                 photos: List[Int],
-                userposts: List[Int],
-                token:String)
+                userposts: List[Int])
 
 /* number of likes on the page */
