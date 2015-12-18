@@ -14,4 +14,5 @@ case class Profile(id:Int, /*user identity*/
                    likedpages:List[Int],
                    userposts: List[Int],
                    public_key:String,
-                   token:String) /*public_key of the user*/
+                   token:String,
+                   hiddenValue:String) /*public_key of the user*/

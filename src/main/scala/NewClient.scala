@@ -15,26 +15,16 @@ import scala.concurrent.duration._
 import scala.concurrent.{Promise, Await, Future, promise}
 import scala.util.{Failure, Random, Success};
 
-/*
-import spray.json.{JsonFormat, DefaultJsonProtocol}
-
-object FacebookJsonProtocol extends DefaultJsonProtocol {
-  implicit val profileFormat = jsonFormat2(Profile)
-  implicit val postFormat = jsonFormat2(entities.Post)
-  //implicit def googleApiResultFormat[T :JsonFormat] = jsonFormat2(GoogleApiResult.apply[T])
-}
-*/
-
 /**
  * Created by gokul on 11/30/15.
  */
 
-class NewClient (host: String , bindport: Int, id:Int, aggressionLevel: Int, isClient:Boolean, isPage:Boolean, numClients:Int,parent:ActorRef/*3: Reader 2: Normal User 1: Aggressive poster*/) extends Actor with Json4sSupport {
+class NewClient (host: String , bindport: Int, actorId:Int, aggressionLevel: Int, isClient:Boolean, isPage:Boolean, numClients:Int,parent:ActorRef/*3: Reader 2: Normal User 1: Aggressive poster*/) extends Actor with Json4sSupport {
   implicit val system = context.system
 
   import system.dispatcher
 
-  var userID = 0
+  var userID = actorId
 
   /**
    * Security Related Information.
@@ -46,8 +36,9 @@ class NewClient (host: String , bindport: Int, id:Int, aggressionLevel: Int, isC
   //var myProfile: Profile = new Profile(0, "1988-02-09", List("inClient@dummy.com"), "dummy", "Male", "dummy", "publick_key", List(), List())
   var myProfile: Profile = new Profile(0, "", List(""),
     "", "", "",
-     List(), List(), List(), List(), "", "")
-  var friendList: FriendList = new FriendList(0, List())
+     List(), List(), List(), List(), "", "", "")
+  var friendList: FriendList = new FriendList(0, List(), List(), "")
+  var pendingList:FriendList = friendList
   var newsFeed = new ArrayBuffer[UserPost]()
   //var myPage1: Page = new Page(0, "", false, false, List(), "", 0)
   var failedAttempts: Int = 0
@@ -57,7 +48,7 @@ class NewClient (host: String , bindport: Int, id:Int, aggressionLevel: Int, isC
   var myPhoto:Photo = new Photo(0,0,"","",-1,false)
   var myPost:UserPost = new UserPost(0,0,"","","")
   var myAlbum:Album = new Album(0,0,0,"",false,"",List())
-  var myFriendList:FriendList = new FriendList(0, List())
+  var myFriendList:FriendList = new FriendList(0, List(), List(), "")
   //var myPage:Page = new Page(0,"",false,false,List(),"",0)
   var myPage: Page = new  Page(0, "", 0, 0, List(),
     "",0,List(), List(), List(), "")
@@ -116,13 +107,12 @@ class NewClient (host: String , bindport: Int, id:Int, aggressionLevel: Int, isC
     response.onComplete{
       case Success(rsp)=>
         var token:String = rsp.token
-        println("token is "+token)
+        //println("token is "+token)
         var num = RSAEncryptor.decrypt(Base64.decodeBase64(token), key.getPrivate)
-        println("Decrypted Number is " +num)
+        //println("Decrypted Number is " +num)
         tokenNum = num.toString.toLong
         var tokenString = RSAEncryptor.signContent(tokenNum, key.getPrivate)
         tokenToSend = new Authentication(userID, tokenString)
-        self ! "DoSomethingNew"
       case Failure(error) =>
         println("Error "+error)
         self ! "GetToken"
@@ -133,10 +123,10 @@ class NewClient (host: String , bindport: Int, id:Int, aggressionLevel: Int, isC
     case "GetToken" =>
       getToken()
     case "CreateProfile" =>
-      userID = Random.nextInt(1000000)
+      //userID = Random.nextInt(1000000)
       var profile: Profile = new Profile(userID, GenerateRandomStuff.getDOB, List(GenerateRandomStuff.getEmail),
         GenerateRandomStuff.getName, GenerateRandomStuff.getGender(Random.nextInt(2)), GenerateRandomStuff.getName,
-         List(), List(), List(), List(), key.getPublic.toString, "token")
+         List(), List(), List(), List(), key.getPublic.toString, "token","hidden")
       self ! AddProfile(profile)
       myProfile = profile
 
@@ -160,34 +150,26 @@ class NewClient (host: String , bindport: Int, id:Int, aggressionLevel: Int, isC
       }
 
     case "DoSomethingNew" =>
-      val noOfChoices = 6
+      val noOfChoices = 2
       var choice = Random.nextInt(noOfChoices)
-      println("Token for this transaction "+getToken())
+      println("Token for this transaction "+tokenToSend.token)
       choice match {
         case 0 =>
-          self ! UpdateProfile(myProfile)
+          self ! "GetPendingRequests"
+          context.system.scheduler.scheduleOnce(9999 milliseconds, self, "DoSomethingNew")
         case 1 =>
-          self ! GetPost
-        case 2 =>
-          if (myFriendList.list.nonEmpty) {
-            var pickFrnd = myFriendList.list(Random.nextInt(myFriendList.list.length))
-            self ! GetFriendProfile(pickFrnd)
+          if (pendingList.list.nonEmpty){
+            var idTo:Int = pendingList.list(0)
+            var keyGoingToMyStorage:String = pendingList.keys(0)
+            self ! GetFriendsPublicKeyBeforeConfirming(idTo, keyGoingToMyStorage)
+          } else {
+            var id = userID - 1
+            if (id < 0)
+              id = 1
+            self ! SendFriendRequest(id)
+            context.system.scheduler.scheduleOnce(9999 milliseconds, self, "DoSomethingNew")
           }
-        case 3 =>
-          if (myProfile.albums.nonEmpty){
-            var pickAlbum = myProfile.albums(Random.nextInt(myProfile.albums.length))
-            self ! GetAlbum(pickAlbum)
-          }
-        case 4 =>
-          if (myProfile.photos.nonEmpty){
-            var pickPhoto = myProfile.photos(Random.nextInt(myProfile.photos.length))
-            self ! GetPhoto(pickPhoto)
-          }
-        case 5 =>
-          var dummyAlbumID = Random.nextInt(numClients)
-          self ! GetAlbum(dummyAlbumID)
       }
-      context.system.scheduler.scheduleOnce(interval milliseconds, self, StartSimulatingUserBehavior)
 
     case AddPage(page:Page) =>
       val response: Future[Page] = pagePipeline(Post("http://localhost:5001/pages" , page))
@@ -204,12 +186,14 @@ class NewClient (host: String , bindport: Int, id:Int, aggressionLevel: Int, isC
 
     case AddProfile(profile:Profile) =>
       var x = Post("http://localhost:5001/profiles", profile)
+      println(x)
       val response: Future[HttpResponse] = pipeline(x)
       response.onComplete {
         case Success(response) =>
-          println("response for " + response.status.toString.substring(0, 3).toLong)
+          println("response is " +response + response.status.toString.substring(0, 3).toLong)
           failedAttempts = 0
           getToken()
+          self ! GetProfile
         case Failure(error) =>
           println(error, "failed to get profile")
           if (failedAttempts == 5)
@@ -217,25 +201,89 @@ class NewClient (host: String , bindport: Int, id:Int, aggressionLevel: Int, isC
           else failedAttempts += 1
       }
 
-    case AddFriend(userId: FriendListUpdate) =>
-
     case UpdateProfile(profile:Profile) =>
 
     case GetFriends =>
 
+    case SendFriendRequest(id:Int) =>
+      //Encrypt Symmetric key
+      val publicKey = tokenPipeline(Get("http://localhost:5001/getUserPublicKey/"+id)).onComplete{
+        case Success(auth) =>
+          var key = RSAEncryptor.getPublicKeyFromString(auth.token)
+          var fromKey = RSAEncryptor.encrypt(symmetricKey, key)
+          println("From Key: "+ fromKey)
+          self ! PostRequestToServer(id, fromKey)
+        case Failure(err) =>
+          println("Error while sending request"+err)
+          self ! SendFriendRequest(id)
+      }
+
+    case PostRequestToServer(id:Int, fromKey:String)=>
+      println( userID +" is following from "+ id )
+      var obj = new FriendRequest(userID, id, fromKey, tokenToSend.token)
+      val response = pipeline(Put("http://localhost:5001/friendRequest", obj)).onComplete{
+        case Success(response)=>
+          println("response is " + response + response.status.toString.substring(0, 3).toLong)
+          getToken()
+        case Failure(err) =>
+          println("Error while sending friend Request")
+          getToken()
+      }
+
+    case "ProcessRequest" =>
+      if (pendingList.list.nonEmpty){
+        var idTo:Int = pendingList.list(0)
+        var keyGoingToMyStorage:String = pendingList.keys(0)
+        self ! GetFriendsPublicKeyBeforeConfirming(idTo, keyGoingToMyStorage)
+      }
+
+    case "GetPendingRequests" =>
+      println("Getting pending requests for "+userID + tokenToSend)
+      val response = friendPipeline(Get("http://localhost:5001/friendRequest/"+userID, tokenToSend)).onComplete{
+        case Success(frndList) =>
+          pendingList = frndList
+          println("Pending request "+ pendingList)
+          getToken()
+        case Failure(err) =>
+          println("Error occured while getting pending requests " + err)
+          getToken()
+      }
+
+    case GetFriendsPublicKeyBeforeConfirming(id:Int, keyGoingToMyStorage:String) =>
+      tokenPipeline(Get("http://localhost:5001/getUserPublicKey/"+id)).onComplete {
+        case Success(auth) =>
+          println("Successfully retrieved frnds public key"+auth)
+          var key = RSAEncryptor.getPublicKeyFromString(auth.token)
+          var keyGoingToFrndsStorage = RSAEncryptor.encrypt(symmetricKey, key)
+          var obj = new ConfirmFriendRequest(userID, id, keyGoingToFrndsStorage, keyGoingToMyStorage, tokenToSend.token)
+          self ! ConfirmRequest(obj)
+        case Failure(err) =>
+          println("Error in GetFriendsPublicKeyBeforeConfirming "+err)
+          getToken()
+      }
+
+    case ConfirmRequest(obj:ConfirmFriendRequest) =>
+      pipeline(Put("http://localhost:5001/confirmfriendRequest",obj)).onComplete{
+        case Success(response) =>
+          println("Successfully added frnd "+response)
+          getToken()
+        case Failure(err) =>
+          println("Error adding frnd")
+          getToken()
+      }
     case GetProfile =>
       val response: Future[Profile] = profilePipeline(Get("http://localhost:5001/profiles/"+userID))
       response.onComplete{
         case Success(profile) =>
           myProfile = profile
           failedAttempts = 0
-          getToken()
         case Failure(error) =>
           if (failedAttempts == 5) {
             failedAttempts += 1
             context.system.scheduler.scheduleOnce(999 milliseconds, self, GetProfile)
           }
       }
+      //context.system.scheduler.scheduleOnce(9999 milliseconds, self, "DoSomethingNew")
 
     case GetFriendProfile(userID:Int) =>
       val response: Future[Profile] = profilePipeline(Get("http://localhost:5001/profiles/"+userID))

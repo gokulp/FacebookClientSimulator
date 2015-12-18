@@ -5,4 +5,5 @@ package entities
  */
 case class FriendRequest(idFrom:Int,
                          idTo:Int,
+                         fromKey:String,
                          token:String);

@@ -25,7 +25,7 @@ class Admin(host:String, port:Int, noOfUsers:Int) extends Actor {
     case StartSimulation =>
       println("Initializing respective clients!")
       for (i <- 0 until noOfUsers){
-        clients += system.actorOf(Props(classOf[NewClient], host, port, 1, 1, true,false, noOfUsers,self), name = i.toString)
+        clients += system.actorOf(Props(classOf[NewClient], host, port, i, 1, true,false, noOfUsers,self), name = i.toString)
 //        var future = ask(clients(i) , GetProfile)
 //        var dummy = Await.result(future, timeout.duration)
 //        var future1 = ask(clients(i) , GetFriends)
@@ -33,6 +33,27 @@ class Admin(host:String, port:Int, noOfUsers:Int) extends Actor {
         clients(i)! "CreateProfile" //StartSimulatingUserBehavior
         //println("Done User "+i)
       }
+      context.system.scheduler.scheduleOnce(10000 milliseconds, self, "MakeFriends")
+
+    case "MakeFriends" =>
+      for (i <- 0 until noOfUsers; j <- 0 until noOfUsers) {
+        if (i!=j){
+          clients(i) ! SendFriendRequest(j)
+        }
+      }
+      context.system.scheduler.scheduleOnce(10000 milliseconds, self, "SeeRequests")
+
+    case "SeeRequests" =>
+      for (i <- 0 until noOfUsers) {
+        clients(i) ! "GetPendingRequests"
+      }
+      context.system.scheduler.scheduleOnce(10000 milliseconds, self, "ProcessRequests")
+
+    case "ProcessRequests" =>
+      for (i <- 0 until noOfUsers) {
+        clients(i) ! "ProcessRequest"
+      }
+
     case PrintStatistics =>
       var interval:Long = (System.currentTimeMillis() - startTime)
       var response: Future[HttpResponse] = pipeline(Get("http://localhost:5001/Statistics/" + interval))
