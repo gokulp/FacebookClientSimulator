@@ -36,18 +36,28 @@ class Admin(host:String, port:Int, noOfUsers:Int) extends Actor {
       context.system.scheduler.scheduleOnce(10000 milliseconds, self, "MakeFriends")
 
     case "MakeFriends" =>
-      for (i <- 0 until noOfUsers; j <- 0 until noOfUsers) {
+/*      for (i <- 0 until noOfUsers; j <- 0 until noOfUsers) {
         if (i!=j){
           clients(i) ! SendFriendRequest(j)
         }
+      }*/
+      for (i <- 0 until noOfUsers -1 ) {
+        clients(i) ! SendFriendRequest(i+1)
       }
+      context.system.scheduler.scheduleOnce(5000 milliseconds, self, "GetToken")
       context.system.scheduler.scheduleOnce(10000 milliseconds, self, "SeeRequests")
 
     case "SeeRequests" =>
       for (i <- 0 until noOfUsers) {
         clients(i) ! "GetPendingRequests"
       }
+      context.system.scheduler.scheduleOnce(5000 milliseconds, self, "GetToken")
       context.system.scheduler.scheduleOnce(10000 milliseconds, self, "ProcessRequests")
+
+    case "GetToken" =>
+      for (i <- 0 until noOfUsers) {
+        clients(i) ! "GetToken"
+      }
 
     case "ProcessRequests" =>
       for (i <- 0 until noOfUsers) {
